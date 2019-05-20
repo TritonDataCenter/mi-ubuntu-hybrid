@@ -1,0 +1,4 @@
+[submodule "sdc-imgapi"]
+	path = sdc-imgapi
+	url = https://github.com/joyent/sdc-imgapi
+	branch = IMAGE-1163

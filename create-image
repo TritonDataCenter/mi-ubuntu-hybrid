@@ -1,0 +1,221 @@
+#!/usr/bin/bash -e
+#
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+#
+
+#
+# Copyright 2019 Joyent, Inc.
+#
+
+#
+# This script turns an Ubuntu KVM image supplied by Canonical into a hybrid
+# KVM/bhyve image.  See usage() and README.md for details.
+#
+
+export PATH=/usr/bin:/usr/sbin
+srcimg=
+minor_version=1
+me=$(basename "$0")
+top=$(cd "$(dirname "$0")" && pwd -P)
+gpgdir=$top/gpg
+prepare_image=$top/sdc-imgapi/tools/prepare-image/linux-prepare-image
+debug=false
+
+function usage() {
+	cat <<EOF
+Usage:
+    $me -h
+    $me -p
+    $me -i source_image [-v version]
+
+Options:
+    -d		Debug.  Do not perform cleanup tasks.
+    -h		Show this help message
+    -i srcimg	Create an image based on this source image.  The source is
+		specified as the url to tar file, likely in manta.  The tar file
+		must be signed by "Ubuntu Cloud Image Build (Canonical Internal
+		Cloud Image Builder)
+		<ubuntu-cloudbuilder-noreply@canonical.com>", with the signature
+		in <srcimg>.gpg.  See https://wiki.ubuntu.com/SecurityTeam/FAQ.
+    -v version	Use the supplied version as the minor version.  Defaults to 1.
+		If "-v 42" is used and the image provided by Canonical has
+		version 20190514, the newly created image will be version
+		20190514.42.
+EOF
+}
+
+function fatal {
+	echo "$me: $@" 1>&2
+	exit 1
+}
+
+function cleanup_fn {
+	local i
+
+	for (( i = ${#cleanup[@]}; i > 0; )); do
+		let i--
+		(${cleanup[i]}) ||
+		    echo "$me: cleanup: '${cleanup[i]}' failed" 1>&2
+	done
+}
+
+while getopts dhi:v: opt; do
+	case $opt in
+	d)	debug=true
+		;;
+	h)	usage
+		exit 0;
+		;;
+	i)	srcimg=$OPTARG
+		;;
+	v)	minor_version=$OPTARG
+		;;
+	*)	usage 1>&2
+		exit 1
+		;;
+	esac
+done
+
+typeset -a cleanup
+
+if [[ -z $srcimg ]]; then
+	fatal "source image not specified.  Use '$me -i srcimg' or '$me -h'"
+fi
+
+if [[ ! -d $gpgdir ]]; then
+	fatal "repo does not have 'gpg' directory"
+fi
+
+if [[ ! -f $prepare_image ]]; then
+	fatal "$prepare_image is not a file"
+fi
+
+if [[ $debug == false ]]; then
+	trap cleanup_fn EXIT
+fi
+
+incoming=$top/incoming
+tarfile=$incoming/$(basename "$srcimg")
+gpgfile=$tarfile.sig
+
+# For names of files in $tarfile
+src_imgstr=$(basename "$srcimg" | sed s/.tar$//)
+src_manifest=$incoming/$src_imgstr.json
+src_file=$incoming/$src_imgstr-zfs.gz
+
+#
+# Download and check signature of source image
+#
+echo "Downloading $src_imgstr"
+mkdir -p "$incoming" || fatal "could not create incoming directory"
+curl --insecure -o "$tarfile" "$srcimg" ||
+    fatal "failed to download source image $srcimg"
+curl --insecure -o "$gpgfile" "$srcimg.gpg" ||
+    fatal "failed to download gpg signature $srcimg.gpg"
+gpg --homedir "$gpgdir" --verify "$gpgfile" ||
+    fatal "failed to verify gpg signature of $tarfile"
+cleanup+=("rm -rf incoming")
+(cd "$incoming" && tar xvf "$tarfile") || fatal "failed to extract $tarfile"
+
+#
+# Extract some important info from the image manifest.
+#
+src_uuid=$(json <$src_manifest uuid) ||
+    fatal "unable to parse $src_manifest for uuid"
+[[ -n "$src_uuid" ]] || fatal "no uuid in $src_manifest"
+src_name=$(cat "$src_manifest" | json name) ||
+   fatal "unable to parse $src_manifest for name"
+[[ -n "$src_name" ]] || fatal "no name in $src_manifest"
+src_version=$(json <$src_manifest version) ||
+    fatal "unable to parse $src_manifest for version"
+[[ -n "$src_version" ]] || fatal "no version in $src_manifest"
+
+# Output files
+new_manifest=$top/out/$src
+
+#
+# Import the image
+#
+# Canonical has a habit of creating images with the value of "image_size" as a
+# string rather than an integer.  That will cause `vmadm create` to fail if it's
+# not fixed.
+#
+echo "Installing $src_imgstr as $src_uuid"
+cat "$src_manifest" | json -e 'image_size = parseInt(image_size)' |
+    imgadm install -m /dev/stdin -f "$src_file" ||
+    fatal "failed to install source image"
+cleanup+=("imgadm delete $src_uuid")
+
+#
+# Create an instance using the source image
+#
+inst_uuid=$(uuidgen) || fatal "could not create instance uuid"
+echo "Creating $inst_uuid using image $src_uuid"
+vmadm create <<EOF
+{
+  "uuid": "$inst_uuid",
+  "autoboot": false,
+  "alias": "$me-$src_imgstr",
+  "brand": "kvm",
+  "ram": 512,
+  "vcpus": 1,
+  "disks": [
+    {
+      "image_uuid": "$src_uuid",
+      "boot": true,
+      "model": "virtio"
+    }
+  ],
+  "customer_metadata": {
+    "prepare-image:fix-ubuntu-console": true
+  }
+}
+EOF
+(( $? == 0 )) || fatal "failed to create instance"
+cleanup+=("vmadm delete $inst_uuid")
+
+#
+# Create the new image
+#
+new_version=$src_version.$minor_version
+new_file=$top/out/$src_name-$new_version.zvol.gz
+new_manifest=$top/out/$src_name-$new_version.imgmanifest
+tmp_manifest=$new_manifest.tmp
+mkdir -p "$top/out"
+# this will be popped off the stack in the happy path
+cleanup+=("rm -f $new_file $new_manifest $tmp_manifest")
+
+# Use a massaged version of the source manifest as the new manifest
+fixes="uuid = undefined;"
+fixes+="files = [];"
+fixes+="published_at = undefined;"
+fixes+="image_size = parseInt(image_size);"
+fixes+="version = '$new_version';"
+cat "$src_manifest" | json -e "$fixes" |
+    imgadm create -o $top/out -c gzip -m - -s "$prepare_image" "$inst_uuid" ||
+    fatal "failed to create image"
+
+# String requirements.brand from the new image so it may be used with bhyve or
+# kvm.
+mv "$new_manifest" "$tmp_manifest"
+cat "$tmp_manifest" | json -e 'requirements.brand = undefined;' \
+    >$new_manifest || fatal "failed to strip brand from $new_manifest"
+rm -f "$tmp_manifest"
+
+#
+# Just about done - clean up temporary files, but not the new image.
+#
+unset cleanup[${#cleanup[@]}-1]
+trap "" EXIT
+cleanup_fn
+
+#
+# Share the good news
+#
+echo ""
+echo "Successfully created image $src_name@$new_version"
+echo "     zvol: $new_file"
+echo " manifest: $new_manifest"
+exit 0
