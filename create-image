@@ -169,7 +169,8 @@ vmadm create <<EOF
     }
   ],
   "customer_metadata": {
-    "prepare-image:fix-ubuntu-console": true
+    "prepare-image:fix-ubuntu-console": true,
+    "prepare-image:root-password-hash": "*"
   }
 }
 EOF
