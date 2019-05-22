@@ -21,6 +21,9 @@ me=$(basename "$0")
 top=$(cd "$(dirname "$0")" && pwd -P)
 gpgdir=$top/gpg
 prepare_image=$top/sdc-imgapi/tools/prepare-image/linux-prepare-image
+cpc_base_url=https://us-east.manta.joyent.com/cpcjoyentpublishing/public/
+cpc_base_url+=cloud_imgs/
+cpc_base_url+=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 debug=false
 
 function usage() {
@@ -28,21 +31,25 @@ function usage() {
 Usage:
     $me -h
     $me -p
+    $me -u source_image_url [-v version]
     $me -i source_image [-v version]
 
 Options:
     -d		Debug.  Do not perform cleanup tasks.
     -h		Show this help message
-    -i srcimg	Create an image based on this source image.  The source is
-		specified as the url to tar file, likely in manta.  The tar file
-		must be signed by "Ubuntu Cloud Image Build (Canonical Internal
-		Cloud Image Builder)
-		<ubuntu-cloudbuilder-noreply@canonical.com>", with the signature
-		in <srcimg>.gpg.  See https://wiki.ubuntu.com/SecurityTeam/FAQ.
+    -i image	Create a new image based on this image that is stored in the
+		Joyent manta account of cpcjoyentpublishing.
+    -u srcurl	Create an image based on this source image.  The srcurl is
+		the url to cloud image tar file distributed by Canonical.
     -v version	Use the supplied version as the minor version.  Defaults to 1.
 		If "-v 42" is used and the image provided by Canonical has
 		version 20190514, the newly created image will be version
 		20190514.42.
+
+The tar file specified with the -i or -u options must be signed with the
+"Ubuntu Cloud Image Build (Canonical Internal Cloud Image Builder)
+<ubuntu-cloudbuilder-noreply@canonical.com>" gpg key.  The signature must be
+found in <tarfile>.gpg.  See https://wiki.ubuntu.com/SecurityTeam/FAQ.
 EOF
 }
 
@@ -61,14 +68,48 @@ function cleanup_fn {
 	done
 }
 
-while getopts dhi:v: opt; do
+function version_to_codename {
+	local ver=$1
+
+	# 16.04 was the first supported with bhyve.  Don't bother with older
+	# non-LTS releases.
+	case $ver in
+	16.04) codename=xenial ;;
+	18.04) codename=bionic ;;
+	18.10) codename=cosmic ;;
+	19.04) codename=disco ;;
+	19.10) codename=eoan ;;
+	*) fatal "No code name known for $img" ;;
+	esac
+
+	echo "$codename"
+}
+
+function image_to_url {
+	local img=$1
+	local codename
+
+	if [[ $img != ubuntu-certified-??.??-*.tar ]]; then
+		fatal "invalid image name '$img'"
+	fi
+	codename=$(version_to_codename "$(echo "$img" | cut -d- -f3)") ||
+	    fatal "Unable to translate '$img' to URL"
+
+	echo "$cpc_base_url/$codename/$img"
+}
+
+while getopts dhi:u:v: opt; do
 	case $opt in
 	d)	debug=true
 		;;
 	h)	usage
 		exit 0;
 		;;
-	i)	srcimg=$OPTARG
+	i)	[[ -n $srcimg ]] && fatal "-[iu] may be specified only once"
+		srcimg=$(image_to_url "$OPTARG")
+		;;
+	u)	[[ -n $srcimg ]] && fatal "-[iu] may be specified only once"
+		srcimg=$OPTARG
 		;;
 	v)	minor_version=$OPTARG
 		;;

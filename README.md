@@ -47,44 +47,86 @@ following:
 3. Creates a new image based on this instance, customizing it with
    `sdc-imgapi/tools/prepare-image/linux-prepare-image`.
 
-### Example
+### Example: usage
 
 ```
-# ./create-image -i https://us-east.manta.joyent.com/cpcjoyentpublishing/public/cloud_imgs/e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855/bionic/ubuntu-certified-18.04-20190514.tar
-Downloading ubuntu-certified-18.04-20190514
+# ./create-image -h
+Usage:
+    create-image -h
+    create-image -p
+    create-image -u source_image_url [-v version]
+    create-image -i source_image [-v version]
+
+Options:
+    -d		Debug.  Do not perform cleanup tasks.
+    -h		Show this help message
+    -i image	Create a new image based on this image that is stored in the
+		Joyent manta account of cpcjoyentpublishing.
+    -u srcurl	Create an image based on this source image.  The srcurl is
+		the url to cloud image tar file distributed by Canonical.
+    -v version	Use the supplied version as the minor version.  Defaults to 1.
+		If "-v 42" is used and the image provided by Canonical has
+		version 20190514, the newly created image will be version
+		20190514.42.
+
+The tar file specified with the -i or -u options must be signed with the
+"Ubuntu Cloud Image Build (Canonical Internal Cloud Image Builder)
+<ubuntu-cloudbuilder-noreply@canonical.com>" gpg key.  The signature must be
+found in <tarfile>.gpg.  See https://wiki.ubuntu.com/SecurityTeam/FAQ.
+```
+
+### Example: Create image from a locally cached image
+
+The `-u` option may be used to specify any URL that `curl` may use. In this
+example, rather than downloading from Manta, we use a copy that is cached in
+/var/tmp.
+
+```
+# ./create-image -u file:///var/tmp/ubuntu-certified-18.04-20190405.tar -v 0.1
+Downloading ubuntu-certified-18.04-20190405
+```
+
+### Example: Create image from default incoming location
+
+When Canonical creates new cloud images, they upload them to a public location
+in Manta.  Use the `-i` option to convert image found at that location.
+
+```
+# ./create-image -i ubuntu-certified-18.04-20190405.tar -v 0.1
+Downloading ubuntu-certified-18.04-20190405
   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
                                  Dload  Upload   Total   Spent    Left  Speed
-100  358M  100  358M    0     0  4035k      0  0:01:30  0:01:30 --:--:-- 3133k
+100  336M  100  336M    0     0  10.7M      0  0:00:31  0:00:31 --:--:-- 12.8M
   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
                                  Dload  Upload   Total   Spent    Left  Speed
-100   836  100   836    0     0   1846      0 --:--:-- --:--:-- --:--:--  2004
+100   836  100   836    0     0   1231      0 --:--:-- --:--:-- --:--:--  1416
 gpg: WARNING: unsafe ownership on homedir `/zones/root/ubuntu-hybrid/mi-ubuntu-hybrid/gpg'
-gpg: Signature made May 16, 2019 at 09:44:46 AM UTC using RSA key ID 476CF100
+gpg: Signature made April  6, 2019 at 04:15:08 AM UTC using RSA key ID 476CF100
 gpg: Good signature from "Ubuntu Cloud Image Builder (Canonical Internal Cloud Image Builder) <ubuntu-cloudbuilder-noreply@canonical.com>"
 gpg: WARNING: This key is not certified with a trusted signature!
 gpg:          There is no indication that the signature belongs to the owner.
 Primary key fingerprint: 4A3C E3CD 565D 7EB5 C810  E2B9 7FF3 F408 476C F100
-x ubuntu-certified-18.04-20190514-zfs.gz, 375535495 bytes, 733468 tape blocks
-x ubuntu-certified-18.04-20190514.json, 1090 bytes, 3 tape blocks
-x smartos_image.pkgs, 24099 bytes, 48 tape blocks
-Installing ubuntu-certified-18.04-20190514 as fabe00a3-3bae-4518-98c3-1c9ccb98ab97
-Installing image fabe00a3-3bae-4518-98c3-1c9ccb98ab97 (ubuntu-certified-18.04@20190514)
-...3bae-4518-98c3-1c9ccb98ab97 [========================================================>] 100% 358.14MB   8.30MB/s    43s
-Installed image fabe00a3-3bae-4518-98c3-1c9ccb98ab97 (ubuntu-certified-18.04@20190514)
-Creating d91831c0-b30c-47af-a738-b4944bc206de using image fabe00a3-3bae-4518-98c3-1c9ccb98ab97
-Successfully created VM d91831c0-b30c-47af-a738-b4944bc206de
-Inheriting from origin image fabe00a3-3bae-4518-98c3-1c9ccb98ab97 (ubuntu-certified-18.04 20190514)
+x ubuntu-certified-18.04-20190405-zfs.gz, 352819604 bytes, 689101 tape blocks
+x ubuntu-certified-18.04-20190405.json, 1090 bytes, 3 tape blocks
+x smartos_image.pkgs, 24343 bytes, 48 tape blocks
+Installing ubuntu-certified-18.04-20190405 as d0d07ca4-1445-4d6c-bcb1-6434b9069dbe
+Installing image d0d07ca4-1445-4d6c-bcb1-6434b9069dbe (ubuntu-certified-18.04@20190405)
+...1445-4d6c-bcb1-6434b9069dbe [=======================================================>] 100% 336.47MB   4.69MB/s  1m11s
+Installed image d0d07ca4-1445-4d6c-bcb1-6434b9069dbe (ubuntu-certified-18.04@20190405)
+Creating 98447fd9-9ece-ce90-ea2d-fc4e83b1ad16 using image d0d07ca4-1445-4d6c-bcb1-6434b9069dbe
+Successfully created VM 98447fd9-9ece-ce90-ea2d-fc4e83b1ad16
+Inheriting from origin image d0d07ca4-1445-4d6c-bcb1-6434b9069dbe (ubuntu-certified-18.04 20190405)
 Manifest:
     {
       "v": 2,
-      "uuid": "70d88af3-1feb-47a2-9c69-5041e0355cd1",
+      "uuid": "69442506-e8ec-4ba4-b6a5-8f857db716b2",
       "name": "ubuntu-certified-18.04",
-      "version": "20190514.1",
+      "version": "20190405.0.1",
       "owner": "00000000-0000-0000-0000-000000000000",
       "public": false,
       "type": "zvol",
       "cpu_type": "host",
-      "description": "Ubuntu 18.04.2 LTS (20190514 64-bit). Certified Ubuntu Server Cloud Image from Canonical.",
+      "description": "Ubuntu 18.04.2 LTS (20190405 64-bit). Certified Ubuntu Server Cloud Image from Canonical.",
       "os": "linux",
       "homepage": "https://docs.joyent.com/images/linux/ubuntu-certified",
       "image_size": 10240,
@@ -108,23 +150,23 @@ Manifest:
       },
       "disk_driver": "virtio",
       "nic_driver": "virtio",
-      "urn": "sdc:canonical:ubuntu-certified-18.04:20190514"
+      "urn": "sdc:canonical:ubuntu-certified-18.04:20190405"
     }
-Snapshotting VM "d91831c0-b30c-47af-a738-b4944bc206de" to @imgadm-create-pre-prepare
-Preparing VM d91831c0-b30c-47af-a738-b4944bc206de (starting it)
+Snapshotting VM "98447fd9-9ece-ce90-ea2d-fc4e83b1ad16" to @imgadm-create-pre-prepare
+Preparing VM 98447fd9-9ece-ce90-ea2d-fc4e83b1ad16 (starting it)
 Prepare script is running
 Prepare script succeeded
-Prepare script stopped VM d91831c0-b30c-47af-a738-b4944bc206de
-Snapshotting to "zones/d91831c0-b30c-47af-a738-b4944bc206de-disk0@final"
-Sending image file to "/zones/root/ubuntu-hybrid/mi-ubuntu-hybrid/out/ubuntu-certified-18.04-20190514.1.zvol"
-Saving manifest to "/zones/root/ubuntu-hybrid/mi-ubuntu-hybrid/out/ubuntu-certified-18.04-20190514.1.imgmanifest"
-Rollback VM d91831c0-b30c-47af-a738-b4944bc206de to pre-prepare snapshot (cleanup)
-Successfully deleted VM d91831c0-b30c-47af-a738-b4944bc206de
-Deleted image fabe00a3-3bae-4518-98c3-1c9ccb98ab97
+Prepare script stopped VM 98447fd9-9ece-ce90-ea2d-fc4e83b1ad16
+Snapshotting to "zones/98447fd9-9ece-ce90-ea2d-fc4e83b1ad16-disk0@final"
+Sending image file to "/zones/root/ubuntu-hybrid/mi-ubuntu-hybrid/out/ubuntu-certified-18.04-20190405.0.1.zvol"
+Saving manifest to "/zones/root/ubuntu-hybrid/mi-ubuntu-hybrid/out/ubuntu-certified-18.04-20190405.0.1.imgmanifest"
+Rollback VM 98447fd9-9ece-ce90-ea2d-fc4e83b1ad16 to pre-prepare snapshot (cleanup)
+Successfully deleted VM 98447fd9-9ece-ce90-ea2d-fc4e83b1ad16
+Deleted image d0d07ca4-1445-4d6c-bcb1-6434b9069dbe
 
-Successfully created image ubuntu-certified-18.04@20190514.1
-     zvol: /zones/root/ubuntu-hybrid/mi-ubuntu-hybrid/out/ubuntu-certified-18.04-20190514.1.zvol.gz
- manifest: /zones/root/ubuntu-hybrid/mi-ubuntu-hybrid/out/ubuntu-certified-18.04-20190514.1.imgmanifest
+Successfully created image ubuntu-certified-18.04@20190405.0.1
+     zvol: /zones/root/ubuntu-hybrid/mi-ubuntu-hybrid/out/ubuntu-certified-18.04-20190405.0.1.zvol.gz
+ manifest: /zones/root/ubuntu-hybrid/mi-ubuntu-hybrid/out/ubuntu-certified-18.04-20190405.0.1.imgmanifest
 ```
 
 ## Testing
